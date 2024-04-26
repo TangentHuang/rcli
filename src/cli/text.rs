@@ -2,12 +2,14 @@ use crate::cli::verify_file;
 use crate::cli::verify_path;
 use crate::{process_gen_key, process_sign, process_verify, CmdExecutor};
 use clap::Parser;
+use enum_dispatch::enum_dispatch;
 use std::fmt;
 use std::fmt::Formatter;
 use std::path::PathBuf;
 use std::str::FromStr;
 
 #[derive(Debug, Parser)]
+#[enum_dispatch(CmdExecutor)]
 pub enum TextSubCommand {
     #[command(about = "Sign a massage with a private/shared key")]
     Sign(TextSignOpts),
@@ -121,16 +123,6 @@ impl CmdExecutor for TextGenKeyOpts {
                 tokio::fs::write(name.join("ed25519.pk"), &key[1]).await?;
                 Ok(())
             }
-        }
-    }
-}
-
-impl CmdExecutor for TextSubCommand {
-    async fn execute(self) -> anyhow::Result<()> {
-        match self {
-            TextSubCommand::Sign(opts) => opts.execute().await,
-            TextSubCommand::Verify(opts) => opts.execute().await,
-            TextSubCommand::GenKey(opts) => opts.execute().await,
         }
     }
 }
