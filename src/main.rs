@@ -3,13 +3,15 @@
 use clap::Parser;
 use rcli::{
     process_b64_decode, process_b64_encode, process_csv, process_gen_key, process_gen_pass,
-    process_sign, process_verify, Base64subCommand, Opts, SubCommand, TextSignFormat,
-    TextSubCommand,
+    process_http_serve, process_sign, process_verify, Base64subCommand, HttpSubCommand, Opts,
+    SubCommand, TextSignFormat, TextSubCommand,
 };
 use std::fs;
 use zxcvbn::zxcvbn;
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    tracing_subscriber::fmt::init();
     let opts = Opts::parse();
     match opts.cmd {
         SubCommand::Csv(opt) => {
@@ -32,7 +34,7 @@ fn main() -> anyhow::Result<()> {
             let estimate = zxcvbn(&password, &[])?;
             eprint!("Password strength: {}", estimate.score());
         }
-        SubCommand::Base64(subcmd) => match subcmd {
+        SubCommand::Base64(cmd) => match cmd {
             Base64subCommand::Encode(opt) => {
                 let encode = process_b64_encode(&opt.input, opt.format)?;
                 println!("{}", encode);
@@ -42,7 +44,7 @@ fn main() -> anyhow::Result<()> {
                 println!("{}", decode);
             }
         },
-        SubCommand::Text(subcmd) => match subcmd {
+        SubCommand::Text(cmd) => match cmd {
             TextSubCommand::Sign(opt) => {
                 let sig = process_sign(&opt.input, &opt.key, opt.format)?;
                 println!("{}", sig);
@@ -64,6 +66,11 @@ fn main() -> anyhow::Result<()> {
                         fs::write(name.join("ed25519.pk"), &key[1])?;
                     }
                 }
+            }
+        },
+        SubCommand::Http(cmd) => match cmd {
+            HttpSubCommand::Server(opt) => {
+                process_http_serve(opt.dir, opt.port).await?;
             }
         },
     }

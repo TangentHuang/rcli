@@ -204,7 +204,6 @@ mod tests {
     fn test_ed25519_sign_verify() -> anyhow::Result<()> {
         let sk = Ed25519Signer::load("./tests/text_test/ed25519.sk")?;
         let pk = Ed25519Verifier::load("./tests/text_test/ed25519.pk")?;
-
         let data = b"hello world";
         let sig = sk.sign(&mut &data[..])?;
         assert!(pk.verify(&data[..], &sig)?);
