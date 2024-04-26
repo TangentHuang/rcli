@@ -4,6 +4,7 @@ use axum::routing::get;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
+use tower_http::services::ServeDir;
 use tracing::{info, warn};
 
 #[derive(Debug)]
@@ -13,10 +14,19 @@ struct HttpServeState {
 
 pub async fn process_http_serve(path: PathBuf, port: u16) -> anyhow::Result<()> {
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
+    //info!("Start static file server, the server ip is {}");
     info!("Serving {:?} on port {}", path, addr);
 
-    let state = HttpServeState { path };
+    let state = HttpServeState { path: path.clone() };
+    let dir_service = ServeDir::new(path)
+        .append_index_html_on_directories(true)
+        .precompressed_gzip()
+        .precompressed_br()
+        .precompressed_zstd()
+        .precompressed_deflate();
+
     let router = axum::Router::new()
+        .nest_service("/tower", dir_service)
         .route("/*path", get(file_handler))
         .with_state(Arc::new(state));
 
@@ -49,5 +59,20 @@ async fn file_handler(
                 )
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_file_handler() {
+        let state = HttpServeState {
+            path: PathBuf::from("./tests/http_test"),
+        };
+        let (status_code, _) =
+            file_handler(State(Arc::new(state)), Path("test.rest".to_string())).await;
+        assert_eq!(status_code, StatusCode::OK);
     }
 }
