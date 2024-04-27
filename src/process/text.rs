@@ -1,8 +1,10 @@
-use crate::cli::TextSignFormat;
+use crate::cli::{TextEncryptFormat, TextSignFormat};
 use crate::process_gen_pass;
 use crate::utils::get_reader;
 use base64::prelude::BASE64_URL_SAFE_NO_PAD;
 use base64::Engine;
+use chacha20poly1305::aead::generic_array::GenericArray;
+use chacha20poly1305::aead::{Aead, AeadCore, KeyInit, OsRng};
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use std::fs;
 use std::io::Read;
@@ -24,6 +26,14 @@ pub trait KeyLoader {
         Self: Sized;
 }
 
+pub trait TextEncrypt {
+    fn encrypt(&self, reader: impl Read) -> anyhow::Result<Vec<Vec<u8>>>;
+}
+
+pub trait TextDecrypt {
+    fn decrypt(&self, reader: impl Read) -> anyhow::Result<Vec<u8>>;
+}
+
 pub struct Blake3 {
     key: [u8; 32],
 }
@@ -32,8 +42,32 @@ pub struct Ed25519Signer {
     key: SigningKey,
 }
 
-struct Ed25519Verifier {
+pub struct Ed25519Verifier {
     key: VerifyingKey,
+}
+
+pub struct Chacha20Poly1305Encryptor {
+    key: [u8; 32],
+}
+
+pub fn process_encrypt(
+    input: &str,
+    key: &str,
+    format: TextEncryptFormat,
+) -> anyhow::Result<String> {
+    let ciphertext = match format {
+        TextEncryptFormat::Chacha20Poly1305 => {
+            let reader = get_reader(input)?;
+            let encryptor = Chacha20Poly1305Encryptor::load(key)?;
+            let ciphertext_info = encryptor.encrypt(reader)?;
+            //encode base64 : ciphertext: nonce
+            let ciphertext = BASE64_URL_SAFE_NO_PAD.encode(&ciphertext_info[0]);
+            let nonce = BASE64_URL_SAFE_NO_PAD.encode(&ciphertext_info[1]);
+            format!("{}:{}", ciphertext, nonce)
+        }
+    };
+    println!("{}", ciphertext);
+    Ok(ciphertext)
 }
 
 pub fn process_sign(input: &str, key: &str, format: TextSignFormat) -> anyhow::Result<String> {
@@ -154,6 +188,32 @@ impl KeyLoader for Ed25519Verifier {
     }
 }
 
+impl KeyLoader for Chacha20Poly1305Encryptor {
+    fn load(path: impl AsRef<Path>) -> anyhow::Result<Self> {
+        let key = fs::read(path)?;
+        Self::try_new(&key)
+    }
+}
+
+impl TextEncrypt for Chacha20Poly1305Encryptor {
+    fn encrypt(&self, mut reader: impl Read) -> anyhow::Result<Vec<Vec<u8>>> {
+        let mut input_buf = Vec::new();
+        reader.read_to_end(&mut input_buf)?;
+
+        let key = GenericArray::clone_from_slice(&self.key);
+        let nonce = chacha20poly1305::ChaCha20Poly1305::generate_nonce(&mut OsRng);
+        let cipher = chacha20poly1305::ChaCha20Poly1305::new(&key);
+        let ciphertext = cipher.encrypt(&nonce, input_buf.as_ref());
+        let ciphertext = match ciphertext {
+            Ok(ciphertext) => ciphertext,
+            Err(e) => {
+                return Err(anyhow::anyhow!("encrypt failed: {}", e.to_string()));
+            }
+        };
+        Ok(vec![ciphertext, nonce.to_vec()])
+    }
+}
+
 impl Blake3 {
     fn new(key: [u8; 32]) -> Self {
         Self { key }
@@ -188,6 +248,18 @@ impl Ed25519Verifier {
     }
 }
 
+impl Chacha20Poly1305Encryptor {
+    fn new(key: [u8; 32]) -> Self {
+        Self { key }
+    }
+    fn try_new(key: &[u8]) -> anyhow::Result<Self> {
+        let key = &key[..32];
+        let key = key.try_into()?;
+        let encryptor = Self::new(key);
+        Ok(encryptor)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -207,6 +279,15 @@ mod tests {
         let data = b"hello world";
         let sig = sk.sign(&mut &data[..])?;
         assert!(pk.verify(&data[..], &sig)?);
+        Ok(())
+    }
+
+    #[test]
+    fn test_chacha20poly1305_encrypt() -> anyhow::Result<()> {
+        let plaintext = "./tests/text_test/chacha20poly1305.txt";
+        let key = "./tests/text_test/chacha20poly1305.key";
+        let mode = TextEncryptFormat::Chacha20Poly1305;
+        assert!(process_encrypt(plaintext, key, mode).is_ok());
         Ok(())
     }
 }
