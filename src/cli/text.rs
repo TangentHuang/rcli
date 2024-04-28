@@ -1,6 +1,8 @@
 use crate::cli::verify_file;
 use crate::cli::verify_path;
-use crate::{process_encrypt, process_gen_key, process_sign, process_verify, CmdExecutor};
+use crate::{
+    process_decrypt, process_encrypt, process_gen_key, process_sign, process_verify, CmdExecutor,
+};
 use clap::Parser;
 use enum_dispatch::enum_dispatch;
 use std::fmt;
@@ -22,8 +24,9 @@ pub enum TextSubCommand {
 
     #[command(about = "Encrypt the text")]
     Encrypt(TextEncryptOpts),
-    //#[command(about = "Decrypt the text by chacha2-opoly1305 ")]
-    //Decrypt(TextDecryptOpts),
+
+    #[command(about = "Decrypt the text by chacha2-opoly1305 ")]
+    Decrypt(TextDecryptOpts),
 }
 
 #[derive(Debug, Parser)]
@@ -195,6 +198,18 @@ impl CmdExecutor for TextEncryptOpts {
             TextEncryptFormat::Chacha20Poly1305 => {
                 let ciphertext = process_encrypt(&self.input, &self.key, self.format)?;
                 println!("{}", ciphertext);
+                Ok(())
+            }
+        }
+    }
+}
+
+impl CmdExecutor for TextDecryptOpts {
+    async fn execute(self) -> anyhow::Result<()> {
+        match self.format {
+            TextEncryptFormat::Chacha20Poly1305 => {
+                let plaintext = process_decrypt(&self.input, &self.key, self.format)?;
+                println!("{}", plaintext);
                 Ok(())
             }
         }

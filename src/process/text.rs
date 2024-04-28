@@ -5,6 +5,7 @@ use base64::prelude::BASE64_URL_SAFE_NO_PAD;
 use base64::Engine;
 use chacha20poly1305::aead::generic_array::GenericArray;
 use chacha20poly1305::aead::{Aead, AeadCore, KeyInit, OsRng};
+use chacha20poly1305::Nonce;
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use std::fs;
 use std::io::Read;
@@ -46,7 +47,7 @@ pub struct Ed25519Verifier {
     key: VerifyingKey,
 }
 
-pub struct Chacha20Poly1305Encryptor {
+pub struct Chacha20Poly1305 {
     key: [u8; 32],
 }
 
@@ -58,8 +59,9 @@ pub fn process_encrypt(
     let ciphertext = match format {
         TextEncryptFormat::Chacha20Poly1305 => {
             let reader = get_reader(input)?;
-            let encryptor = Chacha20Poly1305Encryptor::load(key)?;
+            let encryptor = Chacha20Poly1305::load(key)?;
             let ciphertext_info = encryptor.encrypt(reader)?;
+
             //encode base64 : ciphertext: nonce
             let ciphertext = BASE64_URL_SAFE_NO_PAD.encode(&ciphertext_info[0]);
             let nonce = BASE64_URL_SAFE_NO_PAD.encode(&ciphertext_info[1]);
@@ -68,6 +70,23 @@ pub fn process_encrypt(
     };
     println!("{}", ciphertext);
     Ok(ciphertext)
+}
+
+pub fn process_decrypt(
+    input: &str,
+    key: &str,
+    format: TextEncryptFormat,
+) -> anyhow::Result<String> {
+    let plaintext = match format {
+        TextEncryptFormat::Chacha20Poly1305 => {
+            let reader = get_reader(input)?;
+            let decryptor = Chacha20Poly1305::load(key)?;
+            let plaintext = decryptor.decrypt(reader)?;
+            BASE64_URL_SAFE_NO_PAD.encode(plaintext)
+        }
+    };
+    println!("plaintext encode by BASE64_URL_SAFE_NO_PAD:{}", plaintext);
+    Ok(plaintext)
 }
 
 pub fn process_sign(input: &str, key: &str, format: TextSignFormat) -> anyhow::Result<String> {
@@ -188,14 +207,14 @@ impl KeyLoader for Ed25519Verifier {
     }
 }
 
-impl KeyLoader for Chacha20Poly1305Encryptor {
+impl KeyLoader for Chacha20Poly1305 {
     fn load(path: impl AsRef<Path>) -> anyhow::Result<Self> {
         let key = fs::read(path)?;
         Self::try_new(&key)
     }
 }
 
-impl TextEncrypt for Chacha20Poly1305Encryptor {
+impl TextEncrypt for Chacha20Poly1305 {
     fn encrypt(&self, mut reader: impl Read) -> anyhow::Result<Vec<Vec<u8>>> {
         let mut input_buf = Vec::new();
         reader.read_to_end(&mut input_buf)?;
@@ -211,6 +230,33 @@ impl TextEncrypt for Chacha20Poly1305Encryptor {
             }
         };
         Ok(vec![ciphertext, nonce.to_vec()])
+    }
+}
+
+impl TextDecrypt for Chacha20Poly1305 {
+    fn decrypt(&self, mut reader: impl Read) -> anyhow::Result<Vec<u8>> {
+        let mut input_buf = String::new();
+        reader.read_to_string(&mut input_buf)?;
+        let input_buf = input_buf.trim().to_string();
+
+        let ciphertext_info: Vec<&str> = input_buf.split(':').collect();
+        if ciphertext_info.len() != 2 {
+            return Err(anyhow::anyhow!("invalid ciphertext"));
+        }
+        let ciphertext = BASE64_URL_SAFE_NO_PAD.decode(ciphertext_info[0])?;
+        let nonce = BASE64_URL_SAFE_NO_PAD.decode(ciphertext_info[1])?;
+
+        let nonce = Nonce::from_slice(&nonce);
+        let key = GenericArray::clone_from_slice(&self.key);
+        let cipher = chacha20poly1305::ChaCha20Poly1305::new(&key);
+        let plaintext = cipher.decrypt(nonce, ciphertext.as_ref());
+        let plaintext = match plaintext {
+            Ok(plaintext) => plaintext,
+            Err(e) => {
+                return Err(anyhow::anyhow!("decrypt failed: {}", e.to_string()));
+            }
+        };
+        Ok(plaintext)
     }
 }
 
@@ -248,7 +294,7 @@ impl Ed25519Verifier {
     }
 }
 
-impl Chacha20Poly1305Encryptor {
+impl Chacha20Poly1305 {
     fn new(key: [u8; 32]) -> Self {
         Self { key }
     }
@@ -288,6 +334,23 @@ mod tests {
         let key = "./tests/text_test/chacha20poly1305.key";
         let mode = TextEncryptFormat::Chacha20Poly1305;
         assert!(process_encrypt(plaintext, key, mode).is_ok());
+        Ok(())
+    }
+
+    #[test]
+    fn test_chacha20poly1305_decrypt() -> anyhow::Result<()> {
+        let ciphertext = "./tests/text_test/chacha20poly1305Ciphertext.txt";
+        let key = "./tests/text_test/chacha20poly1305.key";
+        let plaintext = "./tests/text_test/chacha20poly1305.txt";
+        let mode = TextEncryptFormat::Chacha20Poly1305;
+
+        let plain_by_decrypt = process_decrypt(ciphertext, key, mode)?;
+        let mut reader = get_reader(plaintext)?;
+        let mut buf = Vec::new();
+        reader.read_to_end(&mut buf)?;
+        let encode = BASE64_URL_SAFE_NO_PAD.encode(buf);
+
+        assert_eq!(plain_by_decrypt, encode);
         Ok(())
     }
 }
