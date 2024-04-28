@@ -25,3 +25,6 @@ tracing = "0.1.40"
 tower-http = { version = "0.5.2", features = ["compression-full", "cors", "trace", "fs"] }
 enum_dispatch = "0.3.13"
 chacha20poly1305 = "0.10.1"
+jsonwebtoken = "9.3.0"
+chrono = "0.4.38"
+regex = "1.10.4"
