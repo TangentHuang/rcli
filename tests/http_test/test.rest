@@ -1,5 +1,8 @@
 ### Test static file server
 GET http://localhost:8080/Cargo.toml
 
+### Test directory listing
+GET http://localhost:8080/tests/
+
 ### Test static file server with tower-http
 GET http://localhost:8080/tower/Cargo.toml

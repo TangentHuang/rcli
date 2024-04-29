@@ -115,7 +115,7 @@ mod test {
         let token = process_jwt_sign(Algorithm::HS256, claims, key.clone())?;
         let key_error_token="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJkZXZpY2UxIiwiZXhwIjoxNzE1NTAyODc4LCJpYXQiOjE3MTQyOTMyNzgsImlzcyI6IiIsIm5iZiI6MCwic3ViIjoiYWNtZSJ9.uiKLPaVzAs44wjk5-k-NH-LFuEmZ6AzK8-XECTktJ40".to_string();
         let time_error_token="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJkZXZpY2UxIiwiZXhwIjoxMjA5NjAwLCJpYXQiOjE3MTQyOTI4NzksImlzcyI6IiIsIm5iZiI6MCwic3ViIjoiYWNtZSJ9.6YHYtcPZFeXayaTpXKx017wS64ydM5lZwVAQHSh_0wA".to_string();
-        assert!(process_jwt_verify(token, key.clone(), Algorithm::HS256)?,);
+        assert!(process_jwt_verify(token, key.clone(), Algorithm::HS256)?);
         assert!(process_jwt_verify(key_error_token, key.clone(), Algorithm::HS256).is_err());
         assert!(process_jwt_verify(time_error_token, key.clone(), Algorithm::HS256).is_err());
         Ok(())
